@@ -49,6 +49,7 @@ import coverage
 
 from coverage.report import Reporter as CoverageReporter
 from coverage.summary import SummaryReporter as CoverageSummaryReporter
+from coverage.config import CoverageConfig
 import coverage.summary
 
 def import_all_python_files(packages):
@@ -130,13 +131,13 @@ class ProgressionReporter(CoverageReporter):
         else:
             return 0
 
-    def report(self, morfs, omit=None, outfile=None, include=None):
+    def report(self, morfs, outfile=None, config=None):
         """Writes a report summarizing progression/regression."""
         # First we use our summary_reporter to generate a text summary of the current version.
         if outfile is None:
             outfile = SUMMARY_FNAME
         outfileobj = open(outfile, "w")
-        self.summary_reporter.report(morfs, omit=omit, outfile=outfileobj, include=include)
+        self.summary_reporter.report(morfs, outfile=outfileobj, config=config)
         outfileobj.close()
 
         self.curunc, self.curpart = parse_out_unc_and_part(fileutil.read_file(SUMMARY_FNAME, mode='rU'))
@@ -187,7 +188,7 @@ class CoverageTextReporter(twisted.trial.reporter.VerboseTextReporter):
         global cov, packages
         twisted.trial.reporter.VerboseTextReporter.__init__(self, *args, **kwargs)
         self.pr = None
-        import_all_python_files(packages)
+        #import_all_python_files(packages)
         cov.stop() # It was started when this module was imported.
         cov.save()
 
@@ -208,7 +209,7 @@ class CoverageTextReporter(twisted.trial.reporter.VerboseTextReporter):
         sys.stdout.write("Coverage results written to %s\n" % (COVERAGE_FNAME,))
         assert self.pr is None, self.pr
         self.pr = ProgressionReporter(cov)
-        self.pr.report(None)
+        self.pr.report(None, outfile=None, config=cov.config)
 
     def printSummary(self):
         # for twisted-2.5.x
@@ -223,28 +224,29 @@ class CoverageTextReporter(twisted.trial.reporter.VerboseTextReporter):
     def wasSuccessful(self):
         return super(CoverageTextReporter, self).wasSuccessful() and self.pr.coverage_progressed()
 
-def init_paths():
-    global RES_DIRNAME, RES_FULLDIRNAME, COVERAGE_FNAME, BEST_DIRNAME, BEST_COVERAGE_FNAME, SUMMARY_FNAME, BEST_SUMMARY_FNAME, VERSION_STAMP_FNAME, BEST_VERSION_STAMP_FNAME
+def start_coverage():
+    global cov, packages, RES_DIRNAME, RES_FULLDIRNAME, COVERAGE_FNAME, BEST_DIRNAME, BEST_COVERAGE_FNAME, SUMMARY_FNAME, BEST_SUMMARY_FNAME, VERSION_STAMP_FNAME, BEST_VERSION_STAMP_FNAME
+    
+    packages =setuptools.find_packages('.')
+    includes = [os.path.join(pkg.replace('.', os.sep), '*') for pkg in packages]
+    cov = coverage.coverage(config_file='.coveragerc')
+    cov.config.include = includes
 
     # We keep our notes about previous best code-coverage results in a
     # folder named ".coverage-results".
     RES_DIRNAME='.coverage-results'
     RES_FULLDIRNAME=os.path.realpath(os.path.abspath(os.path.expanduser(RES_DIRNAME)))
     fileutil.make_dirs(RES_FULLDIRNAME)
-    COVERAGE_FNAME=os.path.join(os.path.abspath(os.getcwd()), '.coverage')
+    COVERAGE_FNAME=os.path.join(os.path.abspath(os.getcwd()),
+            cov.config.data_file)
     BEST_DIRNAME=os.path.join(RES_FULLDIRNAME, 'best')
     fileutil.make_dirs(BEST_DIRNAME)
-    BEST_COVERAGE_FNAME=os.path.join(BEST_DIRNAME, '.coverage')
+    BEST_COVERAGE_FNAME=os.path.join(BEST_DIRNAME, cov.config.data_file)
     SUMMARY_FNAME=os.path.join(RES_FULLDIRNAME, 'summary.txt')
     BEST_SUMMARY_FNAME=os.path.join(BEST_DIRNAME, 'summary.txt')
     VERSION_STAMP_FNAME=os.path.join(RES_FULLDIRNAME, 'version-stamp.txt')
     BEST_VERSION_STAMP_FNAME=os.path.join(BEST_DIRNAME, 'version-stamp.txt')
 
-def start_coverage():
-    global cov, packages
-    packages = setuptools.find_packages('.')
-    includes = [os.path.join(pkg.replace('.', os.sep), '*') for pkg in packages]
-    cov = coverage.coverage(include=includes, branch=True, auto_data=True)
     # poke the internals of coverage to work-around this issue:
     # http://bitbucket.org/ned/coveragepy/issue/71/atexit-handler-results-in-exceptions-from-half-torn-down
     cov.atexit_registered = True
@@ -255,5 +257,4 @@ def start_coverage():
 # doesn't call the reporter before importing the test files, and we
 # want to turn on coverage before any of the package files (including
 # its test files) get imported.
-init_paths()
 start_coverage()
